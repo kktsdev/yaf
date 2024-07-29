@@ -12,22 +12,7 @@ use thiserror::Error;
 
 const BUILTIN_CONFIG: &str = include_str!("yaf.conf");
 static STYLES: phf::Map<&str, &str> = phf_map! {
-    "color0" => "\x1B[0;30m",
-    "color1" => "\x1B[0;31m",
-    "color2" => "\x1B[0;32m",
-    "color3" => "\x1B[0;33m",
-    "color4" => "\x1B[0;34m",
-    "color5" => "\x1B[0;35m",
-    "color6" => "\x1B[0;36m",
-    "color7" => "\x1B[0;37m",
-    "color8"  => "\x1B[1;30m",
-    "color9"  => "\x1B[1;31m",
-    "color10" => "\x1B[1;32m",
-    "color11" => "\x1B[1;33m",
-    "color12" => "\x1B[1;34m",
-    "color13" => "\x1B[1;35m",
-    "color14" => "\x1B[1;36m",
-    "color15" => "\x1B[1;37m",
+    "color" => "\x1B[38;5;{}m",
     "bold" => "\x1B[1m",
     "italic" => "\x1B[3m",
     "underline" => "\x1B[4m",
@@ -63,8 +48,10 @@ enum MyError {
     UnmatchedBrace,
     #[error("Unclosed '{{' found")]
     UnclosedBrace,
-    #[error("Unknown variable: {0}")]
-    UnknownBuiltinVariable(String),
+    #[error("Unknown style: {0}")]
+    UnknownStyle(String),
+    #[error("Unknown color: {0}")]
+    UnknownColor(String),
 }
 
 fn main() {
@@ -150,11 +137,8 @@ fn parse_line(line: &str) -> Result<String, MyError> {
                 if buffer.starts_with('$') {
                     output.push_str(&get_env(&buffer[1..])?);
                 } else if buffer.starts_with('@') {
-                    if let Some(replacement) = STYLES.get(&buffer.as_str()[1..]) {
-                        output.push_str(replacement);
-                    } else {
-                        return Err(MyError::UnknownBuiltinVariable(buffer.clone()));
-                    }
+                    let key = &buffer[1..];
+                    output.push_str(&get_style(key)?);
                 } else {
                     output.push_str(&run_sh(&buffer)?);
                 }
@@ -175,6 +159,26 @@ fn parse_line(line: &str) -> Result<String, MyError> {
 
     output.push('\n');
     Ok(output)
+}
+
+fn get_style(key: &str) -> Result<String, MyError> {
+    if key.starts_with("color") {
+        let suffix = &key["color".len()..].trim();
+        if let Ok(color) = suffix.parse::<u8>() {
+            if let Some(format_string) = STYLES.get("color") {
+                return Ok(format!(
+                    "{}",
+                    format_string.replace("{}", &color.to_string())
+                ));
+            }
+        }
+        return Err(MyError::UnknownColor(suffix.to_string()));
+    }
+
+    STYLES
+        .get(key)
+        .map(|&value| value.to_string())
+        .ok_or(MyError::UnknownStyle(key.to_string()))
 }
 
 fn run_sh(command: &str) -> Result<String, MyError> {
